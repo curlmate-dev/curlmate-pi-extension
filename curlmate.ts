@@ -1,6 +1,6 @@
-import { type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { type AgentToolUpdateCallback, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
-import { Type } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 
 const CURLMATE_BASE_URL = "https://api.curlmate.dev";
 
@@ -70,21 +70,22 @@ function getApiKey(): string | undefined {
 
 let inMemoryJwt: string | undefined;
 
-function getJwt(ctx: ExtensionContext | undefined): string | undefined {
-	// Prefer sessionStorage if available, fall back to in-memory storage
-	return ctx?.sessionStorage?.get("curlmate_jwt") ?? inMemoryJwt;
+function getJwt(_ctx: ExtensionContext | undefined): string | undefined {
+	// For now we just keep the JWT in memory for the lifetime of this extension
+	// runtime. If you want persistence across reloads, store it in a custom
+	// session entry via `pi.appendEntry` and reconstruct state on session_start.
+	return inMemoryJwt;
 }
 
-function setJwt(ctx: ExtensionContext | undefined, jwt: string): void {
-	// Store in sessionStorage when available, and always keep an in-memory fallback
-	ctx?.sessionStorage?.set("curlmate_jwt", jwt);
+function setJwt(_ctx: ExtensionContext | undefined, jwt: string): void {
+	// Same as above – store only in memory for this extension runtime.
 	inMemoryJwt = jwt;
 }
 
 async function ensureJwt(
 	ctx: ExtensionContext | undefined,
 	apiKey: string | undefined,
-): Promise<{ jwt: string } | { errorResponse: { content: Array<{ type: string; text: string }>; details: Record<string, unknown> } }>
+): Promise<{ jwt: string } | { errorResponse: { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> } }>
 {
 	// Ensure we have a JWT: use cached value if present, otherwise obtain one via Curlmate using the API key.
 	if (!apiKey) {
@@ -144,7 +145,13 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 			"Requires CURLMATE_API_KEY environment variable.",
 		parameters: CurlmateConnectionParams,
 
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(
+			_toolCallId: string,
+			params: Static<typeof CurlmateConnectionParams>,
+			_signal: AbortSignal | undefined,
+			_onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+			ctx: ExtensionContext,
+		) {
 			const action: CurlmateAction = params.action;
 			const apiKey = getApiKey();
 
