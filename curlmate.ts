@@ -68,12 +68,66 @@ function getApiKey(): string | undefined {
 	return process.env.CURLMATE_API_KEY;
 }
 
-function getJwt(ctx: ExtensionContext): string | undefined {
-	return ctx.sessionStorage.get("curlmate_jwt");
+let inMemoryJwt: string | undefined;
+
+function getJwt(ctx: ExtensionContext | undefined): string | undefined {
+	// Prefer sessionStorage if available, fall back to in-memory storage
+	return ctx?.sessionStorage?.get("curlmate_jwt") ?? inMemoryJwt;
 }
 
-function setJwt(ctx: ExtensionContext, jwt: string): void {
-	ctx.sessionStorage.set("curlmate_jwt", jwt);
+function setJwt(ctx: ExtensionContext | undefined, jwt: string): void {
+	// Store in sessionStorage when available, and always keep an in-memory fallback
+	ctx?.sessionStorage?.set("curlmate_jwt", jwt);
+	inMemoryJwt = jwt;
+}
+
+async function ensureJwt(
+	ctx: ExtensionContext | undefined,
+	apiKey: string | undefined,
+): Promise<{ jwt: string } | { errorResponse: { content: Array<{ type: string; text: string }>; details: Record<string, unknown> } }>
+{
+	// Ensure we have a JWT: use cached value if present, otherwise obtain one via Curlmate using the API key.
+	if (!apiKey) {
+		return {
+			errorResponse: {
+				content: [
+					{
+						type: "text",
+						text: "Error: CURLMATE_API_KEY environment variable not set. Please set CURLMATE_API_KEY in your environment and try again.",
+					},
+				],
+				details: { action: "jwt", error: "Missing API key" },
+			},
+		};
+	}
+
+	// Always fetch a fresh JWT from Curlmate for each call to avoid
+	// any issues with stale or expired tokens.
+	const response = await fetch(`${CURLMATE_BASE_URL}/jwt`, {
+		method: "GET",
+		headers: {
+			"Authorization": `Bearer ${apiKey}`,
+		},
+	});
+
+	if (!response.ok) {
+		const errorText = await response.text();
+		return {
+			errorResponse: {
+				content: [
+					{
+						type: "text",
+						text: `Error getting JWT from Curlmate: ${response.status} ${errorText}`,
+					},
+				],
+				details: { action: "jwt", error: errorText },
+			},
+		};
+	}
+
+	const data = await response.json() as { jwt: string };
+	setJwt(ctx, data.jwt);
+	return { jwt: data.jwt };
 }
 
 export default function curlmateExtension(pi: ExtensionAPI) {
@@ -104,47 +158,24 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 				}
 
 				case "jwt": {
-					if (!apiKey) {
-						return {
-							content: [{ type: "text", text: "Error: CURLMATE_API_KEY environment variable not set" }],
-							details: { action: "jwt", error: "Missing API key" },
-						};
+					const result = await ensureJwt(ctx, apiKey);
+					if ("errorResponse" in result) {
+						return result.errorResponse;
 					}
-
-					const response = await fetch(`${CURLMATE_BASE_URL}/jwt`, {
-						method: "GET",
-						headers: {
-							"Authorization": `Bearer ${apiKey}`,
-						},
-					});
-
-					if (!response.ok) {
-						const errorText = await response.text();
-						return {
-							content: [{ type: "text", text: `Error getting JWT: ${response.status} ${errorText}` }],
-							details: { action: "jwt", error: errorText },
-						};
-					}
-
-					const data = await response.json() as { jwt: string };
-					setJwt(ctx, data.jwt);
 
 					return {
-						content: [{ type: "text", text: `JWT obtained and stored. Use connections to list accounts.` }],
-						details: { action: "jwt", jwt: data.jwt },
+						content: [{ type: "text", text: "JWT obtained and stored. Use connections to list accounts." }],
+						details: { action: "jwt", jwt: result.jwt },
 					};
 				}
 
 				case "connections": {
-					const jwt = getJwt(ctx);
-					if (!jwt) {
-						return {
-							content: [{ type: "text", text: "Error: No JWT. Run 'jwt' action first." }],
-							details: { action: "connections", error: "Missing JWT" },
-						};
+					const result = await ensureJwt(ctx, apiKey);
+					if ("errorResponse" in result) {
+						return result.errorResponse;
 					}
 
-					const connections = await fetchCurlmate<ConnectionsResponse>("/connections", jwt);
+					const connections = await fetchCurlmate<ConnectionsResponse>("/connections", result.jwt);
 
 					return {
 						content: [{ type: "text", text: JSON.stringify(connections, null, 2) }],
@@ -153,12 +184,9 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 				}
 
 				case "token": {
-					const jwt = getJwt(ctx);
-					if (!jwt) {
-						return {
-							content: [{ type: "text", text: "Error: No JWT. Run 'jwt' action first." }],
-							details: { action: "token", error: "Missing JWT" },
-						};
+					const result = await ensureJwt(ctx, apiKey);
+					if ("errorResponse" in result) {
+						return result.errorResponse;
 					}
 
 					if (!params.connection) {
@@ -171,7 +199,7 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 					const response = await fetch(`${CURLMATE_BASE_URL}/token`, {
 						method: "GET",
 						headers: {
-							"Authorization": `Bearer ${jwt}`,
+							"Authorization": `Bearer ${result.jwt}`,
 							"x-connection": params.connection,
 						},
 					});
@@ -193,12 +221,9 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 				}
 
 				case "auth-url": {
-					const jwt = getJwt(ctx);
-					if (!jwt) {
-						return {
-							content: [{ type: "text", text: "Error: No JWT. Run 'jwt' action first." }],
-							details: { action: "auth-url", error: "Missing JWT" },
-						};
+					const result = await ensureJwt(ctx, apiKey);
+					if ("errorResponse" in result) {
+						return result.errorResponse;
 					}
 
 					if (!params.service) {
@@ -211,7 +236,7 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 					const response = await fetch(`${CURLMATE_BASE_URL}/auth-url`, {
 						method: "GET",
 						headers: {
-							"Authorization": `Bearer ${jwt}`,
+							"Authorization": `Bearer ${result.jwt}`,
 							"x-connection": params.service,
 						},
 					});
