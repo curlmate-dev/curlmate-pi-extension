@@ -1,0 +1,23 @@
+{
+  "name": "curlmate-pi-extension",
+  "version": "0.1.0",
+  "description": "Pi extension for Curlmate - Persistent OAuth for Agents.",
+  "license": "MIT",
+  "author": "Chaitanya Vardhan",
+  "type": "module",
+  "main": "curlmate.ts",
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "curlmate",
+    "oauth"
+  ],
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.57.1",
+    "@mariozechner/pi-ai": "^0.57.1",
+    "@sinclair/typebox": "^0.34.48"
+  },
+  "pi": {
+    "extensions": ["./curlmate.ts"]
+  }
+}
