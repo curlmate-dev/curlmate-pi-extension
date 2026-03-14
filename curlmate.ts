@@ -207,8 +207,7 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 						method: "GET",
 						headers: {
 							"Authorization": `Bearer ${result.jwt}`,
-							"x-connection": params.connection,
-						},
+							"x-connection": `${params.connection}:${params.service}`, 						},
 					});
 
 					if (!response.ok) {
@@ -244,7 +243,7 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 						method: "GET",
 						headers: {
 							"Authorization": `Bearer ${result.jwt}`,
-							"x-connection": params.service,
+							"x-connection": `${params.connection}:${params.service}`,
 						},
 					});
 
