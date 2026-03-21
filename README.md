@@ -27,8 +27,8 @@ This extension provides tools for managing OAuth tokens via Curlmate. It allows 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | action | string | Action to perform: skill, jwt, connections, token, auth-url |
-| connection | string (optional) | Connection id (for token action) |
-| service | string (optional) | Service name (e.g., google-calendar, slack) for auth-url |
+| connection | string (optional) | Connection id (from the `connections` action). For `token` and `auth-url`, it is combined with `service` as `<id>:<service>` for the `x-connection` header. |
+| service | string (optional) | Service name (e.g., gmail, google-calendar, slack). Required for `token` and `auth-url` so the extension can form `<id>:<service>` for the `x-connection` header. |
 
 ## Workflow
 
@@ -46,15 +46,31 @@ This extension provides tools for managing OAuth tokens via Curlmate. It allows 
    ```
    curlmate(action="connections")
    ```
+   This returns objects like:
+   ```json
+   {
+     "connections": [
+       { "id": "299b4860eac34eeb3cbfabe895f8fd6a", "service": "gmail" }
+     ]
+   }
+   ```
 
-4. **Get access token:**
+4. **Get access token for a connection:**
    ```
-   curlmate(action="token", connection="connection-id")
+   curlmate(
+     action="token",
+     connection="299b4860eac34eeb3cbfabe895f8fd6a", // id from connections
+     service="gmail"                                // service from connections
+   )
    ```
 
-5. **Get auth URL for new connection:**
+5. **Get auth URL for a connection (re-auth):**
    ```
-   curlmate(action="auth-url", service="google-calendar")
+   curlmate(
+     action="auth-url",
+     connection="299b4860eac34eeb3cbfabe895f8fd6a", // id from connections
+     service="gmail"                                // service from connections
+   )
    ```
 
 ## Security

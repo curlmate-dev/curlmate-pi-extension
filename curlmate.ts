@@ -6,8 +6,18 @@ const CURLMATE_BASE_URL = "https://api.curlmate.dev";
 
 const CurlmateConnectionParams = Type.Object({
 	action: StringEnum(["skill", "jwt", "connections", "token", "auth-url"] as const),
-	connection: Type.Optional(Type.String({ description: "Connection id (for token/auth-url actions)" })),
-	service: Type.Optional(Type.String({ description: "Service name (e.g., google-calendar, slack)" })),
+	connection: Type.Optional(
+		Type.String({
+			description:
+				"Connection identifier used with the token/auth-url actions. For the token action, use the connection id from 'connections' (without the service) and provide the service separately; the extension will send '<id>:<service>' in the x-connection header.",
+		}),
+	),
+	service: Type.Optional(
+		Type.String({
+			description:
+				"Service name (e.g., gmail, google-calendar, slack). Required for 'token' and 'auth-url' actions so the extension can form the '<id>:<service>' x-connection header.",
+		}),
+	),
 });
 
 type CurlmateAction = "skill" | "jwt" | "connections" | "token" | "auth-url";
@@ -196,10 +206,16 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 						return result.errorResponse;
 					}
 
-					if (!params.connection) {
+					if (!params.connection || !params.service) {
 						return {
-							content: [{ type: "text", text: "Error: connection id required" }],
-							details: { action: "token", error: "Missing connection id" },
+							content: [
+								{
+									type: "text",
+									text:
+										"Error: connection id and service are required for the token action. Use the id and service from the 'connections' list.",
+								},
+							],
+							details: { action: "token", error: "Missing connection id or service" },
 						};
 					}
 
@@ -207,7 +223,8 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 						method: "GET",
 						headers: {
 							"Authorization": `Bearer ${result.jwt}`,
-							"x-connection": `${params.connection}:${params.service}`, 						},
+							"x-connection": `${params.connection}:${params.service}`,
+						},
 					});
 
 					if (!response.ok) {
@@ -232,10 +249,16 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 						return result.errorResponse;
 					}
 
-					if (!params.service) {
+					if (!params.connection || !params.service) {
 						return {
-							content: [{ type: "text", text: "Error: service name required (e.g., google-calendar, slack)" }],
-							details: { action: "auth-url", error: "Missing service" },
+							content: [
+								{
+									type: "text",
+									text:
+										"Error: connection id and service are required for the auth-url action. Use the id and service from the 'connections' list.",
+								},
+							],
+							details: { action: "auth-url", error: "Missing connection id or service" },
 						};
 					}
 
