@@ -20,6 +20,23 @@ const CurlmateConnectionParams = Type.Object({
 	),
 });
 
+const CurlmateUserInfoParams = Type.Object({
+	connection: Type.String({
+		description:
+			"Connection identifier (from the 'connections' list) for which you want to fetch the authenticated user info.",
+	}),
+	service: Type.String({
+		description:
+			"Service name (e.g., gmail, google-drive, google-calendar). Used to look up the correct userInfo endpoint and to form the '<id>:<service>' x-connection header.",
+	}),
+	userInfoUrl: Type.Optional(
+		Type.String({
+			description:
+				"Override for the userInfo URL. If not provided, the tool will use a sensible default for known services (e.g., Google APIs).",
+		}),
+	),
+});
+
 type CurlmateAction = "skill" | "jwt" | "connections" | "token" | "auth-url";
 
 interface Connection {
@@ -142,6 +159,7 @@ async function ensureJwt(
 }
 
 export default function curlmateExtension(pi: ExtensionAPI) {
+	// Core Curlmate management tool
 	pi.registerTool({
 		name: "curlmate",
 		label: "Curlmate",
@@ -292,6 +310,119 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 						details: { action, error: "Unknown action" },
 					};
 			}
+		},
+	});
+
+	// New helper tool: fetch the authenticated user info for a given connection/service
+	pi.registerTool({
+		name: "curlmate-userinfo",
+		label: "Curlmate User Info",
+		description:
+			"Fetch the authenticated user information for a Curlmate connection. " +
+			"This tool uses Curlmate to obtain an access token for the given connection/service " +
+			"and then calls the appropriate userInfo endpoint (e.g., Google OAuth userinfo API).",
+		parameters: CurlmateUserInfoParams,
+
+		async execute(
+			_toolCallId: string,
+			params: Static<typeof CurlmateUserInfoParams>,
+			_signal: AbortSignal | undefined,
+			_onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+			ctx: ExtensionContext,
+		) {
+			const apiKey = getApiKey();
+			const result = await ensureJwt(ctx, apiKey);
+
+			if ("errorResponse" in result) {
+				return result.errorResponse;
+			}
+
+			const { connection, service } = params;
+			let { userInfoUrl } = params;
+
+			if (!connection || !service) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "Error: connection and service are required to fetch user info.",
+						},
+					],
+					details: { action: "userinfo", error: "Missing connection or service" },
+				};
+			}
+
+			// First, obtain an access token for this connection via Curlmate
+			const tokenResponse = await fetch(`${CURLMATE_BASE_URL}/token`, {
+				method: "GET",
+				headers: {
+					"Authorization": `Bearer ${result.jwt}`,
+					"x-connection": `${connection}:${service}`,
+				},
+			});
+
+			if (!tokenResponse.ok) {
+				const errorText = await tokenResponse.text();
+				return {
+					content: [{ type: "text", text: `Error getting token for user info: ${tokenResponse.status} ${errorText}` }],
+					details: { action: "userinfo", error: errorText },
+				};
+			}
+
+			const tokenData = await tokenResponse.json() as TokenResponse;
+			const accessToken = tokenData.accessToken;
+
+			// Determine the userInfo URL if one was not explicitly provided
+			if (!userInfoUrl) {
+				// For Google OAuth services (gmail, google-drive, google-calendar, google-docs, etc.)
+				const googleServices = new Set([
+					"gmail",
+					"google-drive",
+					"google-calendar",
+					"google-docs",
+				]);
+
+				if (googleServices.has(service)) {
+					userInfoUrl = "https://www.googleapis.com/oauth2/v3/userinfo";
+				}
+			}
+
+			if (!userInfoUrl) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								"No default userInfoUrl configured for this service. Please provide 'userInfoUrl' explicitly when calling this tool.",
+						},
+					],
+					details: { action: "userinfo", error: "Missing userInfoUrl" },
+				};
+			}
+
+			// Call the userInfo endpoint with the obtained access token
+			const userInfoResponse = await fetch(userInfoUrl, {
+				method: "GET",
+				headers: {
+					"Authorization": `Bearer ${accessToken}`,
+					"Accept": "application/json",
+				},
+			});
+
+			if (!userInfoResponse.ok) {
+				const errorText = await userInfoResponse.text();
+				return {
+					content: [{ type: "text", text: `Error fetching user info from ${userInfoUrl}: ${userInfoResponse.status} ${errorText}` }],
+					details: { action: "userinfo", error: errorText },
+				};
+			}
+
+			const userInfo = await userInfoResponse.json();
+
+			return {
+				content: [{ type: "text", text: JSON.stringify(userInfo, null, 2) }],
+				details: { action: "userinfo", service, connection, userInfo },
+			};
 		},
 	});
 }
