@@ -37,6 +37,17 @@ const CurlmateUserInfoParams = Type.Object({
 	),
 });
 
+const CurlmateRevealTokenParams = Type.Object({
+	connection: Type.String({
+		description:
+			"Connection identifier (from the 'connections' list) whose raw access token you want to reveal.",
+	}),
+	service: Type.String({
+		description:
+			"Service name (e.g., gmail, github, google-drive, google-calendar). Used to form the '<id>:<service>' x-connection header.",
+	}),
+});
+
 type CurlmateAction = "skill" | "jwt" | "connections" | "token" | "auth-url";
 
 interface Connection {
@@ -256,7 +267,14 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 					const tokenData = await response.json() as TokenResponse;
 
 					return {
-						content: [{ type: "text", text: `Access token: ${tokenData.accessToken}` }],
+						content: [
+							{
+								type: "text",
+								text:
+									"Access token acquired via Curlmate. For security, the full token is not printed here. " +
+									"Use this tool's details.accessToken programmatically, or call 'curlmate-reveal-token' if you explicitly need to see the raw token.",
+							},
+						],
 						details: { action: "token", accessToken: tokenData.accessToken },
 					};
 				}
@@ -313,12 +331,16 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// New helper tool: fetch the authenticated user info for a given connection/service
+	// New helper tool: fetch the authenticated user info for a given connection/service.
+	// Agents should always prefer this tool when they need the authenticated user for a connection,
+	// instead of manually calling APIs with raw tokens.
 	pi.registerTool({
 		name: "curlmate-userinfo",
 		label: "Curlmate User Info",
 		description:
 			"Fetch the authenticated user information for a Curlmate connection. " +
+			"Always use this tool when you need the authenticated user for a connection, " +
+			"instead of manually calling external userinfo endpoints with raw tokens. " +
 			"This tool uses Curlmate to obtain an access token for the given connection/service " +
 			"and then calls the appropriate userInfo endpoint (e.g., Google OAuth userinfo API).",
 		parameters: CurlmateUserInfoParams,
@@ -422,6 +444,72 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: JSON.stringify(userInfo, null, 2) }],
 				details: { action: "userinfo", service, connection, userInfo },
+			};
+		},
+	});
+
+	// Helper tool: explicitly reveal the raw access token for a connection/service.
+	// Use this only when you truly need to see the token; otherwise prefer the
+	// 'token' action of the 'curlmate' tool, which avoids printing secrets in content.
+	pi.registerTool({
+		name: "curlmate-reveal-token",
+		label: "Curlmate Reveal Token",
+		description:
+			"Reveal the raw OAuth access token for a Curlmate connection/service. " +
+			"Use this only when you explicitly need to see the token; otherwise prefer " +
+			"the 'token' action of the 'curlmate' tool, which hides tokens from visible content.",
+		parameters: CurlmateRevealTokenParams,
+
+		async execute(
+			_toolCallId: string,
+			params: Static<typeof CurlmateRevealTokenParams>,
+			_signal: AbortSignal | undefined,
+			_onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+			ctx: ExtensionContext,
+		) {
+			const apiKey = getApiKey();
+			const result = await ensureJwt(ctx, apiKey);
+
+			if ("errorResponse" in result) {
+				return result.errorResponse;
+			}
+
+			const { connection, service } = params;
+
+			if (!connection || !service) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								"Error: connection and service are required to reveal an access token.",
+						},
+					],
+					details: { action: "reveal-token", error: "Missing connection or service" },
+				};
+			}
+
+			const tokenResponse = await fetch(`${CURLMATE_BASE_URL}/token`, {
+				method: "GET",
+				headers: {
+					"Authorization": `Bearer ${result.jwt}`,
+					"x-connection": `${connection}:${service}`,
+				},
+			});
+
+			if (!tokenResponse.ok) {
+				const errorText = await tokenResponse.text();
+				return {
+					content: [{ type: "text", text: `Error getting token: ${tokenResponse.status} ${errorText}` }],
+					details: { action: "reveal-token", error: errorText },
+				};
+			}
+
+			const tokenData = await tokenResponse.json() as TokenResponse;
+
+			return {
+				content: [{ type: "text", text: `Access token: ${tokenData.accessToken}` }],
+				details: { action: "reveal-token", accessToken: tokenData.accessToken, connection, service },
 			};
 		},
 	});
