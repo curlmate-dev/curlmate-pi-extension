@@ -24,11 +24,39 @@ This extension provides tools for managing OAuth tokens via Curlmate. It allows 
 
 ### curlmate
 
+Core Curlmate management tool.
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| action | string | Action to perform: skill, jwt, connections, token, auth-url |
+| action | string | Action to perform: `skill`, `jwt`, `connections`, `token`, `auth-url` |
 | connection | string (optional) | Connection id (from the `connections` action). For `token` and `auth-url`, it is combined with `service` as `<id>:<service>` for the `x-connection` header. |
-| service | string (optional) | Service name (e.g., gmail, google-calendar, slack). Required for `token` and `auth-url` so the extension can form `<id>:<service>` for the `x-connection` header. |
+| service | string (optional) | Service name (e.g., `gmail`, `google-calendar`, `slack`). Required for `token` and `auth-url` so the extension can form `<id>:<service>` for the `x-connection` header. |
+
+**Token action behavior**
+
+- `action="token"` obtains a fresh access token via Curlmate.
+- For security, the **full token is not printed** in the tool's text content.
+- The raw token is returned only in `details.accessToken` for programmatic use.
+- If you explicitly need to see the token, use the `curlmate-reveal-token` tool.
+
+### curlmate-userinfo
+
+Fetch the authenticated user information for a Curlmate connection. Agents should always use this tool when they need the authenticated user for a connection, instead of manually calling external userinfo endpoints with raw tokens.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| connection | string | Connection id from the `connections` action. |
+| service | string | Service name (e.g., `gmail`, `google-drive`, `google-calendar`). Used to look up a default userinfo endpoint for known services and to form `<id>:<service>` for the `x-connection` header. |
+| userInfoUrl | string (optional) | Override for the userinfo URL. If omitted, a sensible default is used for known services (e.g., Google OAuth userinfo). |
+
+### curlmate-reveal-token
+
+Explicitly reveal the raw OAuth access token for a Curlmate connection/service. Use this **only** when you really need to see the token; otherwise, prefer `curlmate(action="token", ...)`, which hides secrets from visible content.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| connection | string | Connection id from the `connections` action. |
+| service | string | Service name (e.g., `gmail`, `github`, `google-drive`, `google-calendar`). Used to form `<id>:<service>` for the `x-connection` header. |
 
 ## Workflow
 
