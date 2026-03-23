@@ -491,9 +491,10 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 		label: "Curlmate Proxy API",
 		description:
 			"Proxy HTTP API calls using OAuth tokens managed by Curlmate. " +
-			"Provide a connection, service, and full API URL. This tool obtains an access token via Curlmate, " +
-			"calls the URL with an Authorization: Bearer header, and returns the response. " +
-			"The bearer token is never exposed in tool content or details.",
+			"Provide a connection, service, full API URL, and optionally HTTP headers via the 'headers' parameter. " +
+			"This tool obtains an access token via Curlmate, calls the URL with an Authorization: Bearer header, " +
+			"and returns the response. Use the 'headers' object to pass any additional required headers to the target API " +
+			"(for example, Notion-Version for Notion). The bearer token is never exposed in tool content or details.",
 		parameters: CurlmateProxyApiParams,
 
 		async execute(
