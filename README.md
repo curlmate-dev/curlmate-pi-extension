@@ -49,6 +49,19 @@ Fetch the authenticated user information for a Curlmate connection. Agents shoul
 | service | string | Service name (e.g., `gmail`, `google-drive`, `google-calendar`). Used to look up a default userinfo endpoint for known services and to form `<id>:<service>` for the `x-connection` header. |
 | userInfoUrl | string (optional) | Override for the userinfo URL. If omitted, a sensible default is used for known services (e.g., Google OAuth userinfo). |
 
+### curlmate-proxy-api
+
+Proxy arbitrary HTTP API calls using an access token managed by Curlmate. The model (or calling code) should supply the full API URL (including any query parameters) discovered from user input. This tool will obtain an access token via Curlmate, call the API with a `Bearer` token, and return the response body. The `Bearer` token is **never** exposed in tool content or details.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| connection | string | Connection id from the `connections` action whose OAuth token should be used. |
+| service | string | Service name (e.g., `gmail`, `google-drive`, `google-calendar`, `slack`). Used to obtain an access token via Curlmate for this proxied API call. |
+| url | string | Full API URL to call via Curlmate, including any query parameters. |
+| method | string (optional) | HTTP method to use. Defaults to `GET`. Supported: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`. |
+| body | string (optional) | Optional request body for non-`GET` requests (typically JSON-encoded). |
+| headers | object (optional) | Additional HTTP headers to send to the target API. The `Authorization` header is managed by Curlmate and will be ignored if provided here. |
+
 ### curlmate-reveal-token
 
 Explicitly reveal the raw OAuth access token for a Curlmate connection/service. Use this **only** when you really need to see the token; otherwise, prefer `curlmate(action="token", ...)`, which hides secrets from visible content.

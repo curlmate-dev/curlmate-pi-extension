@@ -48,6 +48,40 @@ const CurlmateRevealTokenParams = Type.Object({
 	}),
 });
 
+const CurlmateProxyApiParams = Type.Object({
+	connection: Type.String({
+		description:
+			"Connection identifier (from the 'connections' list) whose OAuth token should be used for this proxied API call.",
+	}),
+	service: Type.String({
+		description:
+			"Service name (e.g., gmail, google-drive, google-calendar, slack). Used to obtain an access token via Curlmate for this proxied API call.",
+	}),
+	url: Type.String({
+		description:
+			"Full API URL to call via Curlmate. Include any query parameters discovered by the model.",
+	}),
+	method: Type.Optional(
+		StringEnum(["GET", "POST", "PUT", "PATCH", "DELETE"] as const),
+	),
+	body: Type.Optional(
+		Type.String({
+			description:
+				"Optional request body to send for non-GET requests. Typically JSON-encoded.",
+		}),
+	),
+	headers: Type.Optional(
+		Type.Record(
+			Type.String(),
+			Type.String(),
+			{
+				description:
+					"Optional additional HTTP headers to send to the target API. The Authorization header is managed by Curlmate and will be ignored if provided.",
+			},
+		),
+	),
+});
+
 type CurlmateAction = "skill" | "jwt" | "connections" | "token" | "auth-url";
 
 interface Connection {
@@ -444,6 +478,140 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: JSON.stringify(userInfo, null, 2) }],
 				details: { action: "userinfo", service, connection, userInfo },
+			};
+		},
+	});
+
+	// Helper tool: proxy arbitrary API calls using a Curlmate-managed access token.
+	// The model should supply the full API URL it discovered (including any query parameters),
+	// and this tool will fetch an access token via Curlmate, call the API with a Bearer token,
+	// and return the response body. The Bearer token is never exposed in content or details.
+	pi.registerTool({
+		name: "curlmate-proxy-api",
+		label: "Curlmate Proxy API",
+		description:
+			"Proxy HTTP API calls using OAuth tokens managed by Curlmate. " +
+			"Provide a connection, service, and full API URL. This tool obtains an access token via Curlmate, " +
+			"calls the URL with an Authorization: Bearer header, and returns the response. " +
+			"The bearer token is never exposed in tool content or details.",
+		parameters: CurlmateProxyApiParams,
+
+		async execute(
+			_toolCallId: string,
+			params: Static<typeof CurlmateProxyApiParams>,
+			_signal: AbortSignal | undefined,
+			_onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+			ctx: ExtensionContext,
+		) {
+			const apiKey = getApiKey();
+			const result = await ensureJwt(ctx, apiKey);
+
+			if ("errorResponse" in result) {
+				return result.errorResponse;
+			}
+
+			const { connection, service, url, method, body } = params;
+
+			if (!connection || !service || !url) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								"Error: connection, service, and url are required to proxy an API call.",
+						},
+					],
+					details: { action: "proxy-api", error: "Missing connection, service, or url" },
+				};
+			}
+
+			// Obtain an access token for this connection via Curlmate
+			const tokenResponse = await fetch(`${CURLMATE_BASE_URL}/token`, {
+				method: "GET",
+				headers: {
+					"Authorization": `Bearer ${result.jwt}`,
+					"x-connection": `${connection}:${service}`,
+				},
+			});
+
+			if (!tokenResponse.ok) {
+				const errorText = await tokenResponse.text();
+				return {
+					content: [{ type: "text", text: `Error getting token for proxied API call: ${tokenResponse.status} ${errorText}` }],
+					details: { action: "proxy-api", error: errorText },
+				};
+			}
+
+			const tokenData = await tokenResponse.json() as TokenResponse;
+			const accessToken = tokenData.accessToken;
+
+			// Build headers for the target API call, never exposing the bearer token in tool output.
+			const extraHeaders = params.headers ?? {};
+			const sanitizedHeaders: Record<string, string> = {};
+
+			for (const [key, value] of Object.entries(extraHeaders)) {
+				if (key.toLowerCase() === "authorization") {
+					continue;
+				}
+				sanitizedHeaders[key] = value;
+			}
+
+			const httpMethod = (method ?? "GET").toUpperCase();
+			const shouldHaveBody = httpMethod !== "GET" && httpMethod !== "HEAD";
+
+			const apiResponse = await fetch(url, {
+				method: httpMethod,
+				headers: {
+					...sanitizedHeaders,
+					"Authorization": `Bearer ${accessToken}`,
+				},
+				body: shouldHaveBody ? body : undefined,
+			});
+
+			const contentType = apiResponse.headers.get("content-type") ?? "";
+			let responseBodyText: string;
+
+			if (contentType.includes("application/json")) {
+				const json = await apiResponse.json();
+				responseBodyText = JSON.stringify(json, null, 2);
+			} else {
+				responseBodyText = await apiResponse.text();
+			}
+
+			if (!apiResponse.ok) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Error calling proxied API URL ${url}: ${apiResponse.status} ${apiResponse.statusText}\n\n${responseBodyText}`,
+						},
+					],
+					details: {
+						action: "proxy-api",
+						status: apiResponse.status,
+						statusText: apiResponse.statusText,
+						url,
+						service,
+						connection,
+					},
+				};
+			}
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: responseBodyText,
+					},
+				],
+				details: {
+					action: "proxy-api",
+					status: apiResponse.status,
+					url,
+					service,
+					connection,
+					contentType,
+				},
 			};
 		},
 	});
