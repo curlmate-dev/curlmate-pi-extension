@@ -71,14 +71,10 @@ const CurlmateProxyApiParams = Type.Object({
 		}),
 	),
 	headers: Type.Optional(
-		Type.Record(
-			Type.String(),
-			Type.String(),
-			{
-				description:
-					"Optional additional HTTP headers to send to the target API. The Authorization header is managed by Curlmate and will be ignored if provided.",
-			},
-		),
+		Type.String({
+			description:
+				"Optional JSON object of additional HTTP headers to send to the target API (e.g., '{\"Notion-Version\":\"2022-06-28\"}'). The Authorization header is managed by Curlmate and will be ignored if provided.",
+		}),
 	),
 });
 
@@ -547,14 +543,23 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 			const accessToken = tokenData.accessToken;
 
 			// Build headers for the target API call, never exposing the bearer token in tool output.
-			const extraHeaders = params.headers ?? {};
 			const sanitizedHeaders: Record<string, string> = {};
-
-			for (const [key, value] of Object.entries(extraHeaders)) {
-				if (key.toLowerCase() === "authorization") {
-					continue;
+			if (params.headers) {
+				try {
+					const parsedHeaders = JSON.parse(params.headers);
+					if (typeof parsedHeaders === "object" && parsedHeaders !== null) {
+						for (const [key, value] of Object.entries(parsedHeaders)) {
+							if (key.toLowerCase() !== "authorization") {
+								sanitizedHeaders[key] = String(value);
+							}
+						}
+					}
+				} catch {
+					return {
+						content: [{ type: "text", text: "Error: 'headers' must be a valid JSON object string (e.g., '{\"Notion-Version\":\"2022-06-28\"}')." }],
+						details: { action: "proxy-api", error: "Invalid headers JSON" },
+					};
 				}
-				sanitizedHeaders[key] = value;
 			}
 
 			const httpMethod = (method ?? "GET").toUpperCase();
