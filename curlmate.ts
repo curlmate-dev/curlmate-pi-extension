@@ -98,7 +98,7 @@ interface SkillResponse {
 }
 
 interface AuthUrlResponse {
-	url: string;
+	custAuthUrl: string;
 }
 
 async function fetchCurlmate<T>(
@@ -347,8 +347,8 @@ export default function curlmateExtension(pi: ExtensionAPI) {
 					const authData = await response.json() as AuthUrlResponse;
 
 					return {
-						content: [{ type: "text", text: `Auth URL: ${authData.url}\n\nOpen this URL in a browser to complete OAuth authentication.` }],
-						details: { action: "auth-url", url: authData.url },
+						content: [{ type: "text", text: `Auth URL: ${authData.custAuthUrl}\n\nOpen this URL in a browser to complete OAuth authentication.` }],
+						details: { action: "auth-url", url: authData.custAuthUrl },
 					};
 				}
 
